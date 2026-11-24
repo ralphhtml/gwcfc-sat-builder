@@ -1,0 +1,7 @@
+numpy
+scipy
+pillow
+requests
+netCDF4
+eccodes
+h5py

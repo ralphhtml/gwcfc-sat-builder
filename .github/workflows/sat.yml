@@ -1,0 +1,60 @@
+name: Satellite pictures
+
+# One job a group of sectors, each going round for a few hours; when they end, the next run is started.
+# Started by hand, by a push to trigger/sat, or by the run before. Never on pull requests: code from a fork must
+# not see the secrets.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["trigger/sat"]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  draw:
+    name: ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ["east-conus", "west-conus", "east-meso", "west-meso", "east-fd", "west-fd",
+                "himawari-fd", "himawari-boxes", "meteosat"]
+    # One job a group at a time: a run started while another is going waits for it to end, then takes over.
+    concurrency:
+      group: sat-${{ matrix.group }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -q -r requirements.txt
+      - name: Draw and upload
+        env:
+          GWCFC_BASE: ${{ secrets.GWCFC_BASE }}
+          GWCFC_UPLOAD_KEY: ${{ secrets.GWCFC_UPLOAD_KEY }}
+          GROUP: ${{ matrix.group }}
+        run: python3 sat.py --group "$GROUP" --loop 320
+
+  next:
+    # Starts the next run when this one has done its hours. A run that ended within 15 minutes (no secrets yet,
+    # or something broken) does not start another, so a fault cannot start runs without end.
+    needs: draw
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          started=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .run_started_at)
+          age=$(( $(date -u +%s) - $(date -u -d "$started" +%s) ))
+          echo "this run went for $age seconds"
+          if [ "$age" -gt 900 ]; then gh workflow run sat.yml --repo "$REPO" --ref main; else echo "too short: not starting another"; fi
