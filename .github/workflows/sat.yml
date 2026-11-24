@@ -1,10 +1,19 @@
 name: Satellite pictures
 
-# One job a group of sectors, each going round for a few hours; when they end, the next run is started.
-# Started by hand, by a push to trigger/sat, or by the run before. Never on pull requests: code from a fork must
-# not see the secrets.
+# One job a group of sectors, each going round for a few hours. Each group keeps itself going on its own: fifteen
+# minutes into its hours a job asks for its own next run, which waits (one group at a time, see concurrency) and
+# takes over the moment this one ends. The four groups used to share one run whose next run started only when all
+# four had ended, so a group that finished early sat idle until the slowest one did, then waited again for a free
+# job slot: the full disks went 35 to 50 minutes without a new picture at every hand-over (Nov 24 2026).
+# Started by hand (all groups, or one), by a push to trigger/sat, or by a job before it. Never on pull requests:
+# code from a fork must not see the secrets.
 on:
   workflow_dispatch:
+    inputs:
+      group:
+        description: "One group (boxes, conus, fulldisk, world), or all"
+        required: false
+        default: "all"
   push:
     branches: [main]
     paths: ["trigger/sat"]
@@ -21,8 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["boxes", "conus", "fulldisk", "world"]
-    # One job a group at a time: a run started while another is going waits for it to end, then takes over.
+        group: ${{ fromJSON((github.event.inputs.group && github.event.inputs.group != 'all') && format('["{0}"]', github.event.inputs.group) || '["boxes", "conus", "fulldisk", "world"]') }}
+    # One job a group at a time: a run asked for while one is going waits for it to end, then takes over.
     concurrency:
       group: sat-${{ matrix.group }}
       cancel-in-progress: false
@@ -38,22 +47,16 @@ jobs:
           GWCFC_BASE: ${{ secrets.GWCFC_BASE }}
           GWCFC_UPLOAD_KEY: ${{ secrets.GWCFC_UPLOAD_KEY }}
           GROUP: ${{ matrix.group }}
-        run: python3 sat.py --group "$GROUP" --loop 320
-
-  next:
-    # Starts the next run when this one has done its hours. A run that ended within 15 minutes (no secrets yet,
-    # or something broken) does not start another, so a fault cannot start runs without end.
-    needs: draw
-    if: ${{ always() && !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
         run: |
-          started=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .run_started_at)
-          age=$(( $(date -u +%s) - $(date -u -d "$started" +%s) ))
-          echo "this run went for $age seconds"
-          if [ "$age" -gt 900 ]; then gh workflow run sat.yml --repo "$REPO" --ref main; else echo "too short: not starting another"; fi
+          # The next run of this group, asked for once this one has gone 15 minutes: a job that fails sooner than
+          # that (no secrets yet, something broken) asks for none, so a fault cannot start runs without end.
+          ( sleep 900 && gh workflow run sat.yml --repo "$REPO" --ref main -f group="$GROUP" \
+              && echo "asked for the next $GROUP run" ) &
+          asker=$!
+          python3 sat.py --group "$GROUP" --loop 320
+          status=$?
+          # Ended early: no next run (the asker is still sleeping, so it is stopped).
+          kill "$asker" 2>/dev/null || true
+          exit $status
