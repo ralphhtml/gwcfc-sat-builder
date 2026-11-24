@@ -29,14 +29,14 @@ PART_BYTES = 30 * 1024 * 1024
 
 # group: (seconds between passes, [what to draw])
 GROUPS = {
-    "east-conus":     (60,  [("east", "conus"), ("global", None)]),
-    "west-conus":     (60,  [("west", "conus")]),
-    "east-meso":      (30,  [("east", "meso1"), ("east", "meso2")]),
-    "west-meso":      (30,  [("west", "meso1"), ("west", "meso2")]),
+    "east-conus":     (120,  [("east", "conus"), ("global", None)]),
+    "west-conus":     (120,  [("west", "conus")]),
+    "east-meso":      (60,  [("east", "meso1"), ("east", "meso2")]),
+    "west-meso":      (60,  [("west", "meso1"), ("west", "meso2")]),
     "east-fd":        (120, [("east", "fulldisk")]),
     "west-fd":        (120, [("west", "fulldisk")]),
     "himawari-fd":    (120, [("himawari", "fulldisk")]),
-    "himawari-boxes": (45,  [("himawari", "japan"), ("himawari", "target")]),
+    "himawari-boxes": (90,  [("himawari", "japan"), ("himawari", "target")]),
     "meteosat":       (120, [("eumetsat", None)]),
 }
 
@@ -192,8 +192,11 @@ def upload(base, key_path, root, job, rels, sent, state, dry):
         state["checked_in"] = time.time()
         log(f"  {rel}: sent {len(names)} files, {sum(sizes.values()) / 1e6:.1f} MB; the server listed "
             f"{got.get('listed', 0)} new frames")
-    # The check-in goes even with nothing new (at most once a minute): it is what keeps the server's own job stood down.
-    if not dry and time.time() - state.get("checked_in", 0) > 60:
+    # The check-in goes even with nothing new, every five minutes: it is what keeps the server's own job stood down
+    # (the server waits half an hour before taking a sector back). Not more often: every request is work for the
+    # server's web process, which answers the site too (2026-11-23: thirteen jobs checking in every minute beside
+    # the model uploads, and the site's requests took 1 to 11 seconds).
+    if not dry and time.time() - state.get("checked_in", 0) > 300:
         post(base, key_path, run, "commit", 0, json.dumps({"job": job}).encode())
         state["checked_in"] = time.time()
     # Forget files the local prune has let go of, so the note of what was sent does not grow for ever.
