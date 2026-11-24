@@ -21,8 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["east-conus", "west-conus", "east-meso", "west-meso", "east-fd", "west-fd",
-                "himawari-fd", "himawari-boxes", "meteosat"]
+        group: ["boxes", "conus", "fulldisk", "world"]
     # One job a group at a time: a run started while another is going waits for it to end, then takes over.
     concurrency:
       group: sat-${{ matrix.group }}

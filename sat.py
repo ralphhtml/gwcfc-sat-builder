@@ -29,15 +29,14 @@ PART_BYTES = 30 * 1024 * 1024
 
 # group: (seconds between passes, [what to draw])
 GROUPS = {
-    "east-conus":     (120,  [("east", "conus"), ("global", None)]),
-    "west-conus":     (120,  [("west", "conus")]),
-    "east-meso":      (60,  [("east", "meso1"), ("east", "meso2")]),
-    "west-meso":      (60,  [("west", "meso1"), ("west", "meso2")]),
-    "east-fd":        (120, [("east", "fulldisk")]),
-    "west-fd":        (120, [("west", "fulldisk")]),
-    "himawari-fd":    (120, [("himawari", "fulldisk")]),
-    "himawari-boxes": (90,  [("himawari", "japan"), ("himawari", "target")]),
-    "meteosat":       (120, [("eumetsat", None)]),
+    # Four jobs, not nine: GitHub runs twenty jobs at a time for the whole account, and the models, the small jobs
+    # and the archive builder need room too. The small sectors (a few seconds each) share one job and still come
+    # round every minute; the big ones share by how long a pass takes.
+    "boxes":    (60,  [("east", "meso1"), ("east", "meso2"), ("west", "meso1"), ("west", "meso2"),
+                       ("himawari", "japan"), ("himawari", "target")]),
+    "conus":    (120, [("east", "conus"), ("west", "conus")]),
+    "fulldisk": (120, [("east", "fulldisk"), ("west", "fulldisk")]),
+    "world":    (120, [("himawari", "fulldisk"), ("global", None), ("eumetsat", None)]),
 }
 
 # The builder keeps only the last couple of hours on its own disk: the server holds the archive.
